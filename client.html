@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Face Recognition WebSocket Client</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        margin: 0;
+        padding: 20px;
+        background-color: #f0f0f0;
+      }
+      .container {
+        max-width: 1200px;
+        margin: 0 auto;
+        background: white;
+        padding: 20px;
+        border-radius: 10px;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+      }
+      .video-container {
+        display: flex;
+        gap: 20px;
+        margin-bottom: 20px;
+      }
+      .video-section {
+        flex: 1;
+        text-align: center;
+      }
+      video,
+      img {
+        width: 100%;
+        max-width: 400px;
+        height: 300px;
+        object-fit: cover;
+        border: 2px solid #ddd;
+        border-radius: 8px;
+      }
+      .controls {
+        margin: 20px 0;
+        text-align: center;
+      }
+      button {
+        padding: 10px 20px;
+        margin: 0 10px;
+        border: none;
+        border-radius: 5px;
+        cursor: pointer;
+        font-size: 16px;
+      }
+      .start-btn {
+        background-color: #4caf50;
+        color: white;
+      }
+      .stop-btn {
+        background-color: #f44336;
+        color: white;
+      }
+      .start-btn:disabled,
+      .stop-btn:disabled {
+        background-color: #cccccc;
+        cursor: not-allowed;
+      }
+      .status {
+        padding: 10px;
+        margin: 10px 0;
+        border-radius: 5px;
+        text-align: center;
+      }
+      .status.connected {
+        background-color: #d4edda;
+        color: #155724;
+        border: 1px solid #c3e6cb;
+      }
+      .status.disconnected {
+        background-color: #f8d7da;
+        color: #721c24;
+        border: 1px solid #f5c6cb;
+      }
+      .stats {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 15px;
+        margin: 20px 0;
+      }
+      .stat-card {
+        background: #f8f9fa;
+        padding: 15px;
+        border-radius: 8px;
+        text-align: center;
+      }
+      .stat-value {
+        font-size: 24px;
+        font-weight: bold;
+        color: #007bff;
+      }
+      .stat-label {
+        font-size: 14px;
+        color: #666;
+        margin-top: 5px;
+      }
+      .recognition-results {
+        margin-top: 20px;
+      }
+      .result-item {
+        background: #f8f9fa;
+        padding: 10px;
+        margin: 5px 0;
+        border-radius: 5px;
+        border-left: 4px solid #007bff;
+      }
+      .result-item.recognized {
+        border-left-color: #28a745;
+      }
+      .result-item.unknown {
+        border-left-color: #ffc107;
+      }
+      .result-item.poor-quality {
+        border-left-color: #dc3545;
+      }
+      .settings {
+        margin: 20px 0;
+        padding: 15px;
+        background: #f8f9fa;
+        border-radius: 8px;
+      }
+      .setting-group {
+        margin: 10px 0;
+      }
+      label {
+        display: inline-block;
+        width: 150px;
+        font-weight: bold;
+      }
+      input,
+      select {
+        padding: 5px 10px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>🎭 Face Recognition WebSocket Client</h1>
+
+      <!-- Status -->
+      <div id="status" class="status disconnected">
+        Disconnected from server
+      </div>
+
+      <!-- Settings -->
+      <div class="settings">
+        <h3>⚙️ Settings</h3>
+        <div class="setting-group">
+          <label for="serverUrl">Server URL:</label>
+          <input
+            type="text"
+            id="serverUrl"
+            value="ws://localhost:8764"
+            style="width: 300px"
+          />
+        </div>
+        <div class="setting-group">
+          <label for="frameRate">Frame Rate (FPS):</label>
+          <select id="frameRate">
+            <option value="5">5 FPS</option>
+            <option value="10" selected>10 FPS</option>
+            <option value="15">15 FPS</option>
+            <option value="20">20 FPS</option>
+            <option value="30">30 FPS</option>
+          </select>
+        </div>
+        <div class="setting-group">
+          <label for="quality">JPEG Quality:</label>
+          <select id="quality">
+            <option value="50">50%</option>
+            <option value="70" selected>70%</option>
+            <option value="80">80%</option>
+            <option value="90">90%</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Controls -->
+      <div class="controls">
+        <button id="connectBtn" class="start-btn" onclick="connectToServer()">
+          Connect to Server
+        </button>
+        <button
+          id="startBtn"
+          class="start-btn"
+          onclick="startCamera()"
+          disabled
+        >
+          Start Camera
+        </button>
+        <button id="stopBtn" class="stop-btn" onclick="stopCamera()" disabled>
+          Stop Camera
+        </button>
+      </div>
+
+      <!-- Video Display -->
+      <div class="video-container">
+        <div class="video-section">
+          <h3>📹 Local Camera</h3>
+          <video id="localVideo" autoplay muted></video>
+        </div>
+        <div class="video-section">
+          <h3>🎯 Processed Video</h3>
+          <img
+            id="processedImage"
+            src=""
+            alt="Processed frame will appear here"
+          />
+        </div>
+      </div>
+
+      <!-- Statistics -->
+      <div class="stats">
+        <div class="stat-card">
+          <div class="stat-value" id="totalFrames">0</div>
+          <div class="stat-label">Total Frames</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="inferences">0</div>
+          <div class="stat-label">Inferences Run</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="recognized">0</div>
+          <div class="stat-label">Recognized</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="cached">0</div>
+          <div class="stat-label">Cached Results</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="processingTime">0</div>
+          <div class="stat-label">Avg Processing Time (ms)</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="fps">0</div>
+          <div class="stat-label">Client FPS</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="serverTrackerId">N/A</div>
+          <div class="stat-label">Tracker ID (server)</div>
+        </div>
+      </div>
+
+      <!-- Recognition Results -->
+      <div class="recognition-results">
+        <h3>🔍 Recognition Results</h3>
+        <div id="resultsContainer">
+          <p>No results yet...</p>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      let websocket = null;
+      let localStream = null;
+      let canvas = null;
+      let ctx = null;
+      let frameId = 0;
+      let isStreaming = false;
+      let processingTimes = [];
+      let lastFrameTime = 0;
+      let fpsCounter = 0;
+      let lastFpsTime = Date.now();
+
+      // Initialize canvas for frame capture
+      function initCanvas() {
+        canvas = document.createElement("canvas");
+        ctx = canvas.getContext("2d");
+      }
+
+      // Connect to WebSocket server
+      async function connectToServer() {
+        const serverUrl = document.getElementById("serverUrl").value;
+        const connectBtn = document.getElementById("connectBtn");
+        const status = document.getElementById("status");
+
+        try {
+          connectBtn.disabled = true;
+          connectBtn.textContent = "Connecting...";
+
+          websocket = new WebSocket(serverUrl);
+
+          websocket.onopen = () => {
+            status.textContent = "Connected to server";
+            status.className = "status connected";
+            connectBtn.textContent = "Connected";
+            document.getElementById("startBtn").disabled = false;
+            console.log("Connected to WebSocket server");
+          };
+
+          websocket.onmessage = (event) => {
+            handleServerMessage(JSON.parse(event.data));
+          };
+
+          websocket.onclose = () => {
+            status.textContent = "Disconnected from server";
+            status.className = "status disconnected";
+            connectBtn.textContent = "Connect to Server";
+            connectBtn.disabled = false;
+            document.getElementById("startBtn").disabled = true;
+            document.getElementById("stopBtn").disabled = true;
+            console.log("Disconnected from WebSocket server");
+          };
+
+          websocket.onerror = (error) => {
+            console.error("WebSocket error:", error);
+            status.textContent = "Connection error";
+            status.className = "status disconnected";
+            connectBtn.textContent = "Connect to Server";
+            connectBtn.disabled = false;
+          };
+        } catch (error) {
+          console.error("Failed to connect:", error);
+          connectBtn.textContent = "Connect to Server";
+          connectBtn.disabled = false;
+        }
+      }
+
+      // Handle messages from server
+      function handleServerMessage(data) {
+        if (data.type === "result") {
+          // Update processed image
+          const processedImage = document.getElementById("processedImage");
+          if (data.processed_frame) {
+            processedImage.src = data.processed_frame;
+          }
+
+          // Update processing time
+          if (data.processing_time) {
+            processingTimes.push(data.processing_time * 1000); // Convert to ms
+            if (processingTimes.length > 30) {
+              processingTimes.shift(); // Keep only last 30 measurements
+            }
+          }
+
+          // Update statistics
+          if (data.stats) {
+            updateStatistics(data.stats);
+          }
+
+          // Update server tracker id if present
+          if (typeof data.tracker_id !== "undefined") {
+            const el = document.getElementById("serverTrackerId");
+            if (el) el.textContent = String(data.tracker_id);
+          }
+
+          // Update recognition results
+          if (data.recognition_results) {
+            updateRecognitionResults(data.recognition_results);
+          }
+        }
+      }
+
+      // Update statistics display
+      function updateStatistics(stats) {
+        document.getElementById("totalFrames").textContent =
+          stats.total_frames_processed || 0;
+        document.getElementById("inferences").textContent =
+          stats.total_inferences_run || 0;
+        document.getElementById("recognized").textContent =
+          stats.successful_recognitions || 0;
+        document.getElementById("cached").textContent =
+          stats.cached_results || 0;
+
+        // Calculate average processing time
+        if (processingTimes.length > 0) {
+          const avgTime =
+            processingTimes.reduce((a, b) => a + b, 0) / processingTimes.length;
+          document.getElementById("processingTime").textContent =
+            avgTime.toFixed(1);
+        }
+
+        // Update FPS counter
+        const now = Date.now();
+        fpsCounter++;
+        if (now - lastFpsTime >= 1000) {
+          const fps = Math.round((fpsCounter * 1000) / (now - lastFpsTime));
+          document.getElementById("fps").textContent = fps;
+          fpsCounter = 0;
+          lastFpsTime = now;
+        }
+      }
+
+      // Update recognition results display
+      function updateRecognitionResults(results) {
+        const container = document.getElementById("resultsContainer");
+
+        if (results.length === 0) {
+          container.innerHTML = "<p>No faces detected</p>";
+          return;
+        }
+
+        let html = "";
+        results.forEach((result) => {
+          const statusClass = result.status.replace("_", "-");
+          const stableIcon = result.is_stable ? "✓" : "";
+
+          html += `
+                    <div class="result-item ${statusClass}">
+                        <strong>${result.name}</strong> ${stableIcon}
+                        <br>
+                        <small>
+                            Confidence: ${result.confidence.toFixed(1)}% | 
+                            Status: ${result.status} | 
+                            Tracker: ${result.tracker_id} |
+                            Position: (${result.bbox.x}, ${result.bbox.y}, ${
+            result.bbox.width
+          }x${result.bbox.height})
+                        </small>
+                    </div>
+                `;
+        });
+
+        container.innerHTML = html;
+      }
+
+      // Start camera
+      async function startCamera() {
+        try {
+          localStream = await navigator.mediaDevices.getUserMedia({
+            video: {
+              width: { ideal: 640 },
+              height: { ideal: 480 },
+              facingMode: "user",
+            },
+          });
+
+          const localVideo = document.getElementById("localVideo");
+          localVideo.srcObject = localStream;
+
+          document.getElementById("startBtn").disabled = true;
+          document.getElementById("stopBtn").disabled = false;
+
+          // Initialize canvas if not already done
+          if (!canvas) {
+            initCanvas();
+          }
+
+          // Start streaming frames
+          isStreaming = true;
+          streamFrames();
+
+          console.log("Camera started successfully");
+        } catch (error) {
+          console.error("Error starting camera:", error);
+          alert(
+            "Could not access camera. Please make sure you have granted camera permissions."
+          );
+        }
+      }
+
+      // Stop camera
+      function stopCamera() {
+        isStreaming = false;
+
+        if (localStream) {
+          localStream.getTracks().forEach((track) => track.stop());
+          localStream = null;
+        }
+
+        const localVideo = document.getElementById("localVideo");
+        localVideo.srcObject = null;
+
+        document.getElementById("startBtn").disabled = false;
+        document.getElementById("stopBtn").disabled = true;
+
+        // Clear processed image
+        document.getElementById("processedImage").src = "";
+
+        console.log("Camera stopped");
+      }
+
+      // Stream frames to server
+      async function streamFrames() {
+        if (
+          !isStreaming ||
+          !websocket ||
+          websocket.readyState !== WebSocket.OPEN
+        ) {
+          return;
+        }
+
+        // Lấy phần tử video local từ DOM
+        const localVideo = document.getElementById("localVideo");
+
+        // Lấy giá trị tốc độ khung hình từ input và chuyển đổi sang số nguyên
+        const frameRate = parseInt(document.getElementById("frameRate").value);
+
+        // Lấy giá trị chất lượng từ input, chia cho 100 để có giá trị từ 0 đến 1
+        const quality =
+          parseInt(document.getElementById("quality").value) / 100;
+
+        // Kiểm tra xem video có chiều rộng và chiều cao không
+        if (localVideo.videoWidth && localVideo.videoHeight) {
+          // Đặt kích thước canvas bằng với kích thước video
+          canvas.width = localVideo.videoWidth;
+          canvas.height = localVideo.videoHeight;
+          console.log(
+            `Sending frame with dimensions: ${canvas.width} x ${canvas.height}`
+          );
+
+          // Vẽ khung hình video hiện tại lên canvas
+          ctx.drawImage(localVideo, 0, 0, canvas.width, canvas.height);
+
+          // Chuyển đổi canvas sang định dạng base64 với chất lượng được chỉ định
+          const frameBase64 = canvas.toDataURL("image/jpeg", quality);
+
+          // Tạo đối tượng tin nhắn để gửi đến máy chủ
+          const message = {
+            type: "frame", // Loại tin nhắn là khung hình
+            frame_id: ++frameId, // Tăng và gán ID khung hình
+            frame: frameBase64, // Dữ liệu khung hình dạng base64
+            timestamp: Date.now(), // Dấu thời gian hiện tại
+            tracker_id: 1, // ID trình theo dõi (mặc định là 1)
+          };
+
+          // Thử gửi tin nhắn đến máy chủ qua websocket
+          try {
+            websocket.send(JSON.stringify(message));
+          } catch (error) {
+            // Ghi lại lỗi nếu việc gửi khung hình thất bại
+            console.error("Error sending frame:", error);
+          }
+        }
+
+        // Schedule next frame based on desired frame rate
+        const frameInterval = 1000 / frameRate;
+        setTimeout(streamFrames, frameInterval);
+      }
+
+      // Initialize on page load
+      window.onload = function () {
+        initCanvas();
+      };
+    </script>
+  </body>
+</html>

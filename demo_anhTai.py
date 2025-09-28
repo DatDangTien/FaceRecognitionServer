@@ -6,7 +6,7 @@ import os
 import time
 import logging
 from face_config import FaceRecognitionConfig
-
+from PIL import Image, ImageDraw, ImageFont  # Thêm dòng này
 # Setup logging
 logging.basicConfig(
     level=logging.INFO,
@@ -327,6 +327,93 @@ def inference(model, face_tensor, local_embeds, threshold=None, usernames=None):
         logger.debug(f"   📈 Confidence {confidence_percentage:.1f}% >= required {(1-threshold)*100:.1f}%")
         return embed_idx, distance, confidence_percentage
 
+def draw_bottom_text_box(frame, text, color=(0, 255, 0)):
+    """Vẽ text box ở phía dưới khung hình với hỗ trợ tiếng Việt có dấu"""
+    frame_height, frame_width = frame.shape[:2]
+    
+    # Tạo background cho text
+    text_bg_height = 60
+    cv2.rectangle(frame, (0, frame_height - text_bg_height), (frame_width, frame_height), (0, 0, 0), -1)
+    
+    try:
+        # Convert OpenCV frame to PIL Image
+        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        pil_image = Image.fromarray(frame_rgb)
+        draw = ImageDraw.Draw(pil_image)
+        
+        # Tìm font hỗ trợ tiếng Việt
+        font_size = 20
+        font = None
+        
+        # Thử các font system có sẵn
+        font_paths = [
+            "/System/Library/Fonts/Arial.ttf",  # macOS
+            "/System/Library/Fonts/Helvetica.ttc",  # macOS
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",  # Linux
+            "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",  # Linux
+            "C:/Windows/Fonts/arial.ttf",  # Windows
+            "C:/Windows/Fonts/calibri.ttf",  # Windows
+        ]
+        
+        for font_path in font_paths:
+            try:
+                font = ImageFont.truetype(font_path, font_size)
+                break
+            except:
+                continue
+        
+        # Nếu không tìm được font, dùng default
+        if font is None:
+            font = ImageFont.load_default()
+        
+        # Tự động điều chỉnh font size
+        max_width = frame_width - 40
+        while font_size > 8:
+            try:
+                font = ImageFont.truetype(font_paths[0], font_size) if font_paths else ImageFont.load_default()
+                bbox = draw.textbbox((0, 0), text, font=font)
+                text_width = bbox[2] - bbox[0]
+                if text_width <= max_width:
+                    break
+                font_size -= 2
+            except:
+                font_size -= 2
+        
+        # Nếu vẫn quá dài, cắt text
+        if text_width > max_width:
+            while text_width > max_width and len(text) > 10:
+                text = text[:-1]
+                bbox = draw.textbbox((0, 0), text + "...", font=font)
+                text_width = bbox[2] - bbox[0]
+            text = text + "..."
+        
+        # Tính toán vị trí text để căn giữa
+        bbox = draw.textbbox((0, 0), text, font=font)
+        text_width = bbox[2] - bbox[0]
+        text_height = bbox[3] - bbox[1]
+        
+        text_x = (frame_width - text_width) // 2
+        text_y = frame_height - text_bg_height // 2 - text_height // 2
+        
+        # Vẽ text
+        draw.text((text_x, text_y), text, font=font, fill=color)
+        
+        # Convert back to OpenCV format
+        frame_bgr = cv2.cvtColor(np.array(pil_image), cv2.COLOR_RGB2BGR)
+        return frame_bgr
+        
+    except Exception as e:
+        logger.debug(f"Error drawing Vietnamese text: {e}")
+        # Fallback to OpenCV text (sẽ hiển thị sai dấu)
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        font_scale = 0.6
+        thickness = 2
+        (text_width, text_height), baseline = cv2.getTextSize(text, font, font_scale, thickness)
+        text_x = (frame_width - text_width) // 2
+        text_y = frame_height - text_bg_height // 2 + text_height // 2
+        cv2.putText(frame, text, (text_x, text_y), font, font_scale, color, thickness)
+        return frame
+
 if __name__ == "__main__":
     prev_frame_time = 0
     new_frame_time = 0
@@ -394,6 +481,10 @@ if __name__ == "__main__":
     similarity_rejections = 0
     cached_results = 0  # Số lần dùng kết quả cache
     
+    # Variables for bottom text display
+    current_display_text = ""
+    current_display_color = (255, 255, 255)  # Default white
+    
     print("🎭 Bắt đầu Face Recognition...")
     print(f"⚡ Tối ưu hóa: Inference mỗi {recognition_interval} frame")
     print("Nhấn ESC để thoát")
@@ -454,6 +545,7 @@ if __name__ == "__main__":
         
         # Update trackers và nhận diện với optimization
         active_trackers = []
+        recognized_names = []  # Collect all recognized names for bottom display
         
         # Duyệt qua từng trạng thái tracker để cập nhật và xử lý
         for tracker_state in tracker_states:
@@ -559,67 +651,60 @@ if __name__ == "__main__":
                     cached_results += 1
                     logger.debug(f"📋 Using cached result for tracker {tracker_state.tracker_id}")
                 
-                # Vẽ kết quả nhận diện lên frame
+                # Vẽ bounding box (chỉ vẽ khung, không có text)
                 if tracker_state.recognition_result:
                     result = tracker_state.recognition_result
                     
-                    # Chọn màu và văn bản dựa trên trạng thái nhận diện
+                    # Chọn màu dựa trên trạng thái nhận diện
                     if result["status"] == "recognized":
                         color = FaceRecognitionConfig.COLOR_RECOGNIZED
-                        text = f"Chao mung{result['name']}-uy vien hoi dong nhan dan"
-                        if tracker_state.is_stable:
-                            text += " ✓"  # Đánh dấu nhận diện ổn định
+                        # Collect recognized names for bottom display
+                        recognized_names.append(result['name'])
                         
                     elif result["status"] == "unknown":
                         color = FaceRecognitionConfig.COLOR_UNKNOWN
-                        text = f"Không nhận diện được ({result['confidence']:.1f}%)"
                         
                     else:  # poor_quality
                         color = FaceRecognitionConfig.COLOR_POOR_QUALITY
-                        text = f"Chất lượng kém ({result['confidence']:.1f})"
                     
-                    # Vẽ khung và văn bản lên frame
+                    # Vẽ chỉ bounding box (không có text trên box)
                     frame = cv2.rectangle(frame, (x, y), (x + w, y + h), color, FaceRecognitionConfig.BBOX_THICKNESS)
-                    frame = cv2.putText(frame, text, (x, y-10), 
-                                      FaceRecognitionConfig.TEXT_FONT, FaceRecognitionConfig.TEXT_SCALE, 
-                                      color, FaceRecognitionConfig.TEXT_THICKNESS)
                 else:
                     # Chưa có kết quả, vẽ khung trắng
                     frame = cv2.rectangle(frame, (x, y), (x + w, y + h), (255, 255, 255), FaceRecognitionConfig.BBOX_THICKNESS)
-                    frame = cv2.putText(frame, "Processing...", (x, y-10), 
-                                      FaceRecognitionConfig.TEXT_FONT, FaceRecognitionConfig.TEXT_SCALE, 
-                                      (255, 255, 255), FaceRecognitionConfig.TEXT_THICKNESS)
         
         # Cập nhật danh sách tracker active
         tracker_states = active_trackers
 
-        # Calculate and display FPS
+        # Xử lý text hiển thị ở phía dưới
+        if recognized_names:
+            # Nếu có người được nhận diện
+            if len(recognized_names) == 1:
+                current_display_text = f"Chào mừng Đồng chí {recognized_names[0]} Ủy viên hội đồng nhân dân TP Hồ Chí Minh"
+                current_display_color = FaceRecognitionConfig.COLOR_RECOGNIZED
+            else:
+                # Nhiều người được nhận diện
+                names_str = ", ".join(recognized_names)
+                current_display_text = f"Chao mung {names_str} - uy vien hoi dong nhan dan"
+                current_display_color = FaceRecognitionConfig.COLOR_RECOGNIZED
+        elif len(tracker_states) > 0:
+            # Có người nhưng chưa nhận diện được
+            current_display_text = "Dang nhan dien..."
+            current_display_color = (255, 255, 255)  # White
+        else:
+            # Không có ai
+            current_display_text = "Khong phat hien khuon mat"
+            current_display_color = (128, 128, 128)  # Gray
+        
+        # Vẽ text box ở phía dưới
+        frame = draw_bottom_text_box(frame, current_display_text, current_display_color)
+
+        # Calculate and display FPS (optional - comment out if not needed)
         new_frame_time = time.time()
         fps = 1/(new_frame_time-prev_frame_time) if prev_frame_time > 0 else 0
         prev_frame_time = new_frame_time
         # fps_text = f"FPS: {int(fps)}"
         # cv2.putText(frame, fps_text, (10, 30), FaceRecognitionConfig.TEXT_FONT, 1, FaceRecognitionConfig.COLOR_WHITE, 2)
-        
-        # # Display tracking mode info
-        # mode_text = f"Mode: {'Tracking' if use_tracking else 'Detection-only'}"
-        # cv2.putText(frame, mode_text, (10, 70), FaceRecognitionConfig.TEXT_FONT, 0.7, FaceRecognitionConfig.COLOR_WHITE, 2)
-        
-        # Display recognition statistics với thông tin tối ưu hóa
-        # cv2.putText(frame, f"Processed: {total_faces_processed}", (10, 110), FaceRecognitionConfig.TEXT_FONT, 0.7, FaceRecognitionConfig.COLOR_WHITE, 2)
-        # cv2.putText(frame, f"Inferences: {total_inferences_run}", (10, 150), FaceRecognitionConfig.TEXT_FONT, 0.7, (255, 255, 0), 2)
-        # cv2.putText(frame, f"Cached: {cached_results}", (10, 190), FaceRecognitionConfig.TEXT_FONT, 0.7, (0, 255, 255), 2)
-        # cv2.putText(frame, f"Recognized: {successful_recognitions}", (10, 230), FaceRecognitionConfig.TEXT_FONT, 0.7, FaceRecognitionConfig.COLOR_RECOGNIZED, 2)
-        # cv2.putText(frame, f"Quality Rejected: {quality_rejections}", (10, 270), FaceRecognitionConfig.TEXT_FONT, 0.7, FaceRecognitionConfig.COLOR_POOR_QUALITY, 2)
-        # cv2.putText(frame, f"Similarity Rejected: {similarity_rejections}", (10, 310), FaceRecognitionConfig.TEXT_FONT, 0.7, FaceRecognitionConfig.COLOR_UNKNOWN, 2)
-        
-        # Display threshold info và performance info
-        required_confidence = (1-FaceRecognitionConfig.RECOGNITION_SIMILARITY_THRESHOLD)*100
-        # cv2.putText(frame, f"Required: {required_confidence:.1f}%", (10, 350), FaceRecognitionConfig.TEXT_FONT, 0.7, (255, 255, 255), 2)
-        
-        # Hiển thị tỷ lệ tối ưu hóa
-        if total_faces_processed > 0:
-            optimization_ratio = (cached_results / (total_inferences_run + cached_results)) * 100
-            # cv2.putText(frame, f"Cache Hit: {optimization_ratio:.1f}%", (10, 390), FaceRecognitionConfig.TEXT_FONT, 0.7, (0, 255, 255), 2)
 
         cv2.imshow('Face Recognition', frame)
         if cv2.waitKey(1) & 0xFF == 27:

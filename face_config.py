@@ -4,6 +4,14 @@ Quản lý tất cả thresholds và parameters cho hệ thống nhận diện k
 """
 import cv2
 
+# Get font constant after cv2 is fully imported
+TEXT_FONT_DEFAULT = None
+try:
+    TEXT_FONT_DEFAULT = cv2.FONT_HERSHEY_SIMPLEX
+except AttributeError:
+    # Fallback if cv2 doesn't have FONT_HERSHEY_SIMPLEX
+    TEXT_FONT_DEFAULT = 0  # cv2.FONT_HERSHEY_SIMPLEX typically equals 0
+
 class FaceRecognitionConfig:
     """Configuration class for face recognition system"""
     
@@ -58,7 +66,7 @@ class FaceRecognitionConfig:
     
     # ==================== DISPLAY SETTINGS ====================
     BBOX_THICKNESS = 6
-    TEXT_FONT = cv2.FONT_HERSHEY_SIMPLEX
+    TEXT_FONT = TEXT_FONT_DEFAULT
     TEXT_SCALE = 0.8
     TEXT_THICKNESS = 2
     
