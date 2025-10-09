@@ -3,7 +3,44 @@ from facenet_pytorch import MTCNN, InceptionResnetV1
 import torch
 import numpy as np
 import os
+import logging
+import datetime
+import threading
 from face_config import FaceRecognitionConfig
+
+# Configure OpenCV to avoid Qt5 threading issues
+# cv2.setUseOptimized(True)
+
+# Try to set Qt5 to use single-threaded mode to avoid threading conflicts
+# try:
+#     import os
+#     # Use xcb platform which is more stable for remote desktop connections
+#     if 'DISPLAY' in os.environ:
+#         os.environ['QT_QPA_PLATFORM'] = 'xcb'
+#     else:
+#         os.environ['QT_QPA_PLATFORM'] = 'minimal'
+# except:
+#     pass
+
+# print(f"os.environ: {os.environ['QT_QPA_PLATFORM']}")
+
+# Check for headless mode
+# HEADLESS_MODE = os.environ.get('HEADLESS', 'false').lower() == 'true'
+HEADLESS_MODE = True
+
+# Configure logging
+log_dir = 'logs'
+os.makedirs(log_dir, exist_ok=True)
+log_file = os.path.join(log_dir, f'face_recognition_{datetime.datetime.now().strftime("%Y%m%d_%H%M%S")}.log')
+
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler(log_file),
+        logging.StreamHandler()
+    ]
+)
 
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 print("Using device:", device)
@@ -194,10 +231,66 @@ def register_new_user():
         pretrained="casia-webface"
     ).to(device)
     model_embedding.eval()
+    # print(f"model_embedding: {model_embedding}")
     
+    logging.info("Initializing camera...")
     cap = cv2.VideoCapture(0)
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, FaceRecognitionConfig.CAMERA_WIDTH)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, FaceRecognitionConfig.CAMERA_HEIGHT)
+    if not cap.isOpened():
+        logging.error("Failed to open camera")
+        return
+        
+    # Set camera properties
+    width_success = cap.set(cv2.CAP_PROP_FRAME_WIDTH, FaceRecognitionConfig.CAMERA_WIDTH)
+    height_success = cap.set(cv2.CAP_PROP_FRAME_HEIGHT, FaceRecognitionConfig.CAMERA_HEIGHT)
+    
+    if not width_success or not height_success:
+        logging.warning("Failed to set camera resolution")
+    
+    # Verify camera settings
+    actual_width = cap.get(cv2.CAP_PROP_FRAME_WIDTH)
+    actual_height = cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
+    logging.info(f"Camera initialized with resolution: {actual_width}x{actual_height}")
+    
+    # Test camera read
+    ret, test_frame = cap.read()
+    if not ret or test_frame is None:
+        logging.error("Failed to read test frame from camera")
+        cap.release()
+        return
+    logging.info("Camera test read successful")
+    
+    # Initialize display window outside the loop (only if not in headless mode)
+    display_available = False
+    if not HEADLESS_MODE:
+        try:
+            # Try to create window with error handling
+            cv2.namedWindow("Face Capturing", cv2.WINDOW_NORMAL)
+            logging.info("Display window created successfully")
+            
+            # Test display with a simple image first
+            test_img = np.zeros((100, 100, 3), dtype=np.uint8)
+            cv2.imshow("Face Capturing", test_img)
+            cv2.waitKey(0)  # Test display for 1ms
+            
+            # If successful, try with the actual frame
+            cv2.imshow("Face Capturing", test_frame)
+            cv2.waitKey(0)
+            
+            display_available = True
+            logging.info("Display window created successfully")
+        except Exception as e:
+            logging.error(f"Failed to create display window: {str(e)}")
+            logging.warning("Continuing without display window...")
+            display_available = False
+            # Try to clean up any partial window creation
+            try:
+                cv2.destroyAllWindows()
+            except:
+                pass
+    
+    # Output image dir
+    output_image_dir = "logs/img"
+    os.makedirs(output_image_dir, exist_ok=True)
     
     # Khởi tạo tracker
     trackers = []
@@ -215,25 +308,34 @@ def register_new_user():
     while cap.isOpened() and count > 0:
         ret, frame = cap.read()
         if not ret:
+            logging.error("Failed to read frame from camera")
             break
         
         frame_count += 1
+        logging.debug(f"Processing frame {frame_count}")
         
         # Detect faces mới hoặc khi chưa có tracker
         if not tracker_initialized or frame_count % detection_interval == 0:
+            logging.debug(f"Running face detection (tracker_initialized={tracker_initialized}, frame_count={frame_count})")
             boxes, _, points_list = mtcnn.detect(frame, landmarks=True)
+            
             if boxes is not None:
+                logging.info(f"Detected {len(boxes)} faces in frame {frame_count}")
                 # Tạo trackers mới
                 trackers = []
-                for box in boxes:
+                for i, box in enumerate(boxes):
                     tracker = cv2.legacy.TrackerCSRT_create()
                     bbox = (int(box[0]), int(box[1]), int(box[2]-box[0]), int(box[3]-box[1]))
                     tracker.init(frame, bbox)
                     trackers.append(tracker)
+                    logging.debug(f"Initialized tracker {i+1} at bbox {bbox}")
                 tracker_initialized = True
+            else:
+                logging.warning(f"No faces detected in frame {frame_count}")
         
         # Update trackers và vẽ bounding boxes
         if tracker_initialized and trackers:
+            logging.debug(f"Updating {len(trackers)} trackers")
             for i, tracker in enumerate(trackers):
                 success, bbox = tracker.update(frame)
                 if success:
@@ -243,27 +345,46 @@ def register_new_user():
                     
                     # Lấy face từ bbox để extract embedding
                     if leap % FaceRecognitionConfig.REGISTRATION_SKIP_FRAMES == 0:
+                        logging.debug(f"Processing face ROI at frame {frame_count} (leap={leap})")
                         face_roi = frame[y:y+h, x:x+w]
                         if face_roi.size > 0:
+                            logging.debug(f"Face ROI extracted: {face_roi.shape}")
+                            cv2.imwrite(os.path.join(output_image_dir, f"face_roi_{frame_count}.jpg"), face_roi)
                             face_rgb = cv2.cvtColor(face_roi, cv2.COLOR_BGR2RGB)
                             
-                            face_tensor = mtcnn(face_rgb)
+                            try:
+                                face_tensor = mtcnn(face_rgb)
+                            except Exception as e:
+                                logging.error(f"MTCNN error: {e}")
                             if face_tensor is not None:
                                 total_tensors_processed += 1
+                                logging.info(f"Face tensor generated successfully: {face_tensor.shape}")
                                 
                                 # Validate face quality before saving
+                                logging.debug("Starting face quality validation")
                                 is_good_quality, quality_score = validate_face_quality(face_tensor, face_rgb, mode='registration')
                                 
                                 if is_good_quality:
                                     good_quality_tensors += 1
+                                    logging.info(f"Face passed quality check with score: {quality_score:.2f}")
+                                    
+                                    logging.debug("Generating face embedding")
                                     with torch.no_grad():
                                         embedding = model_embedding(face_tensor.unsqueeze(0).to(device))
                                         embeddings.append(embedding)
+                                        logging.info(f"Face embedding generated successfully: {embedding.shape}")
+                                    
                                     count -= 1
                                     print(f"✅ Captured good quality embedding {FaceRecognitionConfig.REGISTRATION_SAMPLES-count}/{FaceRecognitionConfig.REGISTRATION_SAMPLES} (Quality: {quality_score:.2f})")
+                                    logging.info(f"Progress: {FaceRecognitionConfig.REGISTRATION_SAMPLES-count}/{FaceRecognitionConfig.REGISTRATION_SAMPLES} embeddings captured")
                                 else:
                                     rejected_tensors += 1
+                                    logging.warning(f"Face rejected due to poor quality. Score: {quality_score:.2f}")
                                     print(f"❌ Poor quality face rejected (Quality: {quality_score:.2f})")
+                            else:
+                                logging.warning("MTCNN failed to generate face tensor")
+                        else:
+                            logging.warning("Empty face ROI detected")
         
         # Hiển thị progress và quality feedback
         cv2.putText(frame, f"Progress: {FaceRecognitionConfig.REGISTRATION_SAMPLES-count}/{FaceRecognitionConfig.REGISTRATION_SAMPLES}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
@@ -274,51 +395,102 @@ def register_new_user():
         
         leap += 1
         
-        cv2.imshow("Face Capturing", frame)
-        if cv2.waitKey(1) & 0xFF == 27:
-            break
+        # Display frame if window was successfully created outside the loop
+        if tracker_initialized and display_available:
+            try:
+                logging.debug("Displaying frame")
+                cv2.imwrite(os.path.join(output_image_dir, f"frame_{frame_count}.jpg"), frame)
+                
+                if not HEADLESS_MODE:
+                    cv2.imshow("Face Capturing", frame)
+                
+                # Use a shorter waitKey timeout to prevent hanging
+                key = cv2.waitKey(1)
+                
+                if key & 0xFF == 27:
+                    logging.info("ESC key pressed, exiting capture loop")
+                    break
+                elif key == -1:  # No key pressed
+                    pass
+                else:
+                    logging.debug(f"Key pressed: {key}")
+                    
+            except Exception as e:
+                logging.error(f"Error displaying frame: {str(e)}")
+                logging.warning("Continuing without display...")
+                display_available = False  # Disable display for remaining frames
     
     cap.release()
     cv2.destroyAllWindows()
     
     # Xử lý kết quả
+    logging.info(f"Face capture completed for user '{usr_name}'")
+    logging.info(f"Total embeddings captured: {len(embeddings)}")
+    
     if len(embeddings) > 0:
+        logging.info("Processing captured embeddings")
         embedding = torch.cat(embeddings).mean(0, keepdim=True)
         names = np.array([usr_name])
+        logging.debug(f"Final embedding shape: {embedding.shape}")
         
         # Load existing data
+        logging.info("Loading existing face recognition data")
         existing_embeddings, existing_usernames = load_existing_data()
         
         # Merge with existing data
         if existing_embeddings is not None:
+            logging.info(f"Merging with existing data (current users: {len(existing_usernames)})")
             new_embeddings = torch.cat([existing_embeddings, embedding])
             new_usernames = np.concatenate([existing_usernames, names])
+            logging.debug(f"Updated embeddings shape: {new_embeddings.shape}")
         else:
+            logging.info("No existing data found, creating new dataset")
             new_embeddings = embedding
             new_usernames = names
         
         # Save data
+        logging.info("Saving updated face recognition data")
         save_data(new_embeddings, new_usernames)
         print(f'✅ Đăng ký user "{usr_name}" thành công!')
+        logging.info(f'Successfully registered user "{usr_name}"')
         
         # Hiển thị thống kê cuối cùng
         print("\n📊 THỐNG KÊ CHẤT LƯỢNG:")
         print(f"   • Tổng số tensor đã xử lý: {total_tensors_processed}")
         print(f"   • Số tensor đủ điều kiện: {good_quality_tensors}")
         print(f"   • Số tensor bị từ chối: {rejected_tensors}")
+        
+        # Log detailed statistics
+        logging.info("Final Quality Statistics:")
+        logging.info(f"Total tensors processed: {total_tensors_processed}")
+        logging.info(f"Good quality tensors: {good_quality_tensors}")
+        logging.info(f"Rejected tensors: {rejected_tensors}")
+        
         if total_tensors_processed > 0:
             success_rate = (good_quality_tensors / total_tensors_processed) * 100
             print(f"   • Tỷ lệ thành công: {success_rate:.1f}%")
+            logging.info(f"Success rate: {success_rate:.1f}%")
         
     else:
+        error_msg = "No embeddings captured. Registration failed."
+        logging.error(error_msg)
         print("❌ Không có embedding nào được capture. Đăng ký thất bại.")
+        
         print("\n📊 THỐNG KÊ CHẤT LƯỢNG:")
         print(f"   • Tổng số tensor đã xử lý: {total_tensors_processed}")
         print(f"   • Số tensor đủ điều kiện: {good_quality_tensors}")
         print(f"   • Số tensor bị từ chối: {rejected_tensors}")
+        
+        # Log failure statistics
+        logging.error("Registration Failed - Final Statistics:")
+        logging.error(f"Total tensors processed: {total_tensors_processed}")
+        logging.error(f"Good quality tensors: {good_quality_tensors}")
+        logging.error(f"Rejected tensors: {rejected_tensors}")
+        
         if total_tensors_processed > 0:
             success_rate = (good_quality_tensors / total_tensors_processed) * 100
             print(f"   • Tỷ lệ thành công: {success_rate:.1f}%")
+            logging.error(f"Success rate: {success_rate:.1f}%")
 
 def main_menu():
     """Main menu system"""

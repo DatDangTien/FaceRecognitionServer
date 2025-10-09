@@ -32,10 +32,17 @@ For more details, see the article: https://viblo.asia/p/nhan-dien-khuon-mat-voi-
 3. Run face recognition
 
    ```bash
+   conda activate face-rec
    python face_recognition.py
    ```
 
-4. Optional utilities
+4. Run face capture websocket server
+
+   ```bash
+   python websocket_server.py
+   ```
+
+5. Optional utilities
 
    - `face_detect.py`: basic face detection preview
    - `update_faces.py`: legacy script to rebuild face lists (usually not needed if you use `face_capture_noSave.py`)
