@@ -9,7 +9,6 @@ import torch
 import logging
 from face_config import FaceRecognitionConfig
 import time
-from face_database import FaceDatabase
 
 # Setup logging
 logging.basicConfig(
@@ -52,7 +51,7 @@ def create_tracker():
                             return None
 
 class FaceRecognitionWebSocketServer:
-    def __init__(self, db_config=None):
+    def __init__(self):
         # Device configuration
         self.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
         logger.info(f"Using device: {self.device}")
@@ -86,11 +85,7 @@ class FaceRecognitionWebSocketServer:
             device=self.device
         )
         
-        # Initialize database
-        logger.info("Initializing database connection...")
-        self.db = FaceDatabase(connection_params=db_config)
-        
-        # Load embeddings and usernames from database
+        # Load embeddings and usernames
         self.embeddings, self.names = self.load_faceslist()
         if self.embeddings is None or self.names is None:
             raise Exception("Cannot load face data. Please register users first.")
@@ -117,29 +112,7 @@ class FaceRecognitionWebSocketServer:
         logger.info(f"✅ Server initialized with {len(self.names)} registered users")
 
     def load_faceslist(self):
-        """Load existing embeddings and usernames from database"""
-        try:
-            # Try loading from database
-            embeddings, names = self.db.get_all_users()
-            
-            if embeddings is not None and names is not None:
-                # Ensure embeddings are on correct device and have correct dtype
-                embeddings = embeddings.to(self.device).float()
-                logger.info(f"✅ Loaded embeddings from database: {embeddings.shape}")
-                logger.info(f"✅ Loaded usernames from database: {names}")
-                return embeddings, names
-            
-            # If database is empty, try loading from files as fallback
-            logger.warning("Database is empty. Trying to load from files as fallback...")
-            return self.load_faceslist_from_files()
-            
-        except Exception as e:
-            logger.error(f"Error loading from database: {e}")
-            logger.warning("Falling back to file-based loading...")
-            return self.load_faceslist_from_files()
-    
-    def load_faceslist_from_files(self):
-        """Legacy method to load embeddings and usernames from files"""
+        """Load existing embeddings and usernames"""
         import os
         
         DATA_PATH = './data'
@@ -156,7 +129,7 @@ class FaceRecognitionWebSocketServer:
             embeddings = torch.load(embedding_file, map_location=self.device)
             # Ensure embeddings are on correct device and have correct dtype
             embeddings = embeddings.to(self.device).float()
-            logger.info(f"✅ Loaded embeddings from file: {embeddings.shape}")
+            logger.info(f"✅ Loaded embeddings: {embeddings.shape}")
         else:
             logger.error(f"❌ Cannot find embeddings file: {embedding_file}")
         
@@ -169,7 +142,7 @@ class FaceRecognitionWebSocketServer:
                 usernames = usernames.tolist()
             # Ensure all usernames are strings
             usernames = [str(name) for name in usernames]
-            logger.info(f"✅ Loaded usernames from file: {usernames}")
+            logger.info(f"✅ Loaded usernames: {usernames}")
         else:
             logger.error(f"❌ Cannot find usernames file: {username_file}")
         
@@ -296,35 +269,6 @@ class FaceRecognitionWebSocketServer:
         if threshold is None:
             threshold = FaceRecognitionConfig.RECOGNITION_SIMILARITY_THRESHOLD
         
-        # First, try using database for direct vector search if available
-        try:
-            with torch.no_grad():
-                detect_embeds = self.model(face_tensor.unsqueeze(0).to(self.device))
-            
-            # Try database similarity search first
-            username, similarity = self.db.find_similar_user(detect_embeds.squeeze(0), threshold)
-            
-            if username is not None:
-                # Find index in names list for compatibility
-                try:
-                    idx = self.names.index(username)
-                    distance = 1 - similarity
-                    confidence_percentage = similarity * 100
-                    return idx, distance, confidence_percentage
-                except ValueError:
-                    # User found in DB but not in loaded names list, need to reload
-                    logger.warning(f"User {username} found in DB but not in loaded names. Reloading data...")
-                    self.embeddings, self.names = self.load_faceslist()
-                    try:
-                        idx = self.names.index(username)
-                        return idx, 1 - similarity, similarity * 100
-                    except ValueError:
-                        # Still can't find, fall back to traditional method
-                        pass
-        except Exception as e:
-            logger.debug(f"Database inference failed, falling back to tensor comparison: {e}")
-        
-        # Fall back to traditional tensor comparison method
         similarity_threshold = 1 - threshold
         
         with torch.no_grad():
@@ -421,9 +365,6 @@ class FaceRecognitionWebSocketServer:
 
     async def process_frame(self, client_id, frame, frame_count):
         """Process a single frame for face recognition"""
-        # Add start time for processing time measurement
-        start_time = time.time()
-        
         if client_id not in self.client_trackers:
             self.client_trackers[client_id] = []
         
@@ -515,40 +456,12 @@ class FaceRecognitionWebSocketServer:
                                 idx, distance, confidence_percentage = self.inference(face_tensor)
                                 
                                 if idx != -1:
-                                    # Original code
-                                    # tracker_state.update_recognition_result(
-                                    #     name=self.names[idx], 
-                                    #     confidence=confidence_percentage, 
-                                    #     status="recognized"
-                                    # )
-                                    # self.stats['successful_recognitions'] += 1
-                                    
-                                    # New code with database logging
-                                    user_name = self.names[idx]
                                     tracker_state.update_recognition_result(
-                                        # name=self.names[idx],
-                                        name=user_name, 
+                                        name=self.names[idx], 
                                         confidence=confidence_percentage, 
                                         status="recognized"
                                     )
                                     self.stats['successful_recognitions'] += 1
-                                
-                                    # Log recognition to database
-                                    try:
-                                        # Calculate processing time
-                                        processing_time = time.time() - start_time
-                                        
-                                        user_id = self.db.get_user_id(user_name)
-                                        if user_id is not None:
-                                            self.db.log_recognition(
-                                                user_id=user_id,
-                                                confidence=confidence_percentage,
-                                                processing_time=processing_time,
-                                                frame_id=frame_count,
-                                                client_id=str(client_id)
-                                            )
-                                    except Exception as e:
-                                        logger.debug(f"Failed to log recognition: {e}")
                                 else:
                                     tracker_state.update_recognition_result(
                                         name="Unknown", 
@@ -738,17 +651,7 @@ class FaceRecognitionWebSocketServer:
 # Main execution
 async def main():
     try:
-        # Default database configuration
-        db_config = {
-            'dbname': 'face_recognition',
-            'user': 'face_user',
-            'password': '1',
-            'host': 'localhost',
-            'port': '5433'
-        }
-        
-        # Initialize server with database configuration
-        server = FaceRecognitionWebSocketServer(db_config=db_config)
+        server = FaceRecognitionWebSocketServer()
         await server.start_server(host='0.0.0.0', port=8764)
     except Exception as e:
         logger.error(f"Failed to start server: {e}")
