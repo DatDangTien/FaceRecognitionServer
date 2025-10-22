@@ -6,3 +6,5 @@ numpy>=1.24.0
 websockets>=11.0.0
 asyncio-mqtt>=0.11.0
 Pillow>=9.5.0
+tqdm
+onnxruntime-gpu==1.20.0

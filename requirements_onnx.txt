@@ -1,0 +1,23 @@
+# ONNX Export Requirements
+# Install with: pip install -r requirements_onnx.txt
+
+# Core ONNX dependencies
+torch>=1.9.0
+onnx>=1.12.0
+onnxruntime>=1.12.0
+
+# Optional: ONNX optimization tools
+onnx-simplifier>=0.4.0
+onnxoptimizer>=0.3.0
+
+# Optional: ONNX visualization
+onnx-tools>=0.1.0
+
+# Image processing
+opencv-python>=4.5.0
+Pillow>=8.0.0
+numpy>=1.21.0
+
+# Existing project dependencies
+facenet-pytorch>=2.5.0
+
