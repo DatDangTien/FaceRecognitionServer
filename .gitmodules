@@ -1,6 +1,3 @@
-[submodule "facenet"]
-	path = facenet
-	url = https://github.com/timesler/facenet-pytorch
-[submodule "ncnn"]
-	path = ncnn
-	url = https://github.com/Tencent/ncnn.git
+[submodule "src/dnn"]
+	path = src/dnn
+	url = https://github.com/nguyennhattung1/t10_vision
