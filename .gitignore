@@ -148,6 +148,8 @@ cython_debug/
 # Developed Stage
 developing/
 
+data/
+
 *.jpg
 *.png
 *.npy

@@ -9,8 +9,8 @@ include_directories(${PostgreSQL_INCLUDE_DIRS})
 
 find_library(PQXX_LIB pqxx REQUIRED)
 
-add_executable(test_connect test_connection.cpp)
+add_executable(test_connect test_connection.cpp postgres.cpp)
 target_link_libraries(test_connect ${PostgreSQL_LIBRARIES} ${PQXX_LIB})
 
-add_executable(migrate_data migrate_data.cpp)
+add_executable(migrate_data migrate_data.cpp postgres.cpp)
 target_link_libraries(migrate_data ${PostgreSQL_LIBRARIES} ${PQXX_LIB})

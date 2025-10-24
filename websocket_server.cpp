@@ -13,12 +13,9 @@
 #include <atomic>
 #include <nlohmann/json.hpp>
 
-#include "src/dnn/mtcnn/detector.h"
-#include "src/dnn/mtcnn/onnx_module.h"
-#include "src/postgres/postgres.hpp"
 #include "src/websocket/config.hpp"
-#include "src/websocket/face_quality.hpp"
 #include "src/websocket/base64.hpp"
+#include "src/recognizer/face_recognizer.hpp"
 
 namespace beast = boost::beast;
 namespace http = beast::http;
@@ -47,217 +44,9 @@ struct ServerStats {
     }
 };
 
-// Face recognition result
-struct RecognitionResult {
-    std::string name;
-    float confidence;
-    std::string status;
-    float xmin, ymin, xmax, ymax;  // Bbox coordinates as floats
-    int tracker_id;
-    
-    std::string toJSON() const {
-        std::ostringstream oss;
-        oss << std::fixed << std::setprecision(2);
-        oss << "{"
-            << "\"name\": \"" << name << "\","
-            << "\"confidence\": " << confidence << ","
-            << "\"status\": \"" << status << "\","
-            << "\"bbox\": {"
-            << "\"xmin\": " << xmin << ","
-            << "\"ymin\": " << ymin << ","
-            << "\"xmax\": " << xmax << ","
-            << "\"ymax\": " << ymax
-            << "},"
-            << "\"tracker_id\": " << tracker_id
-            << "}";
-        return oss.str();
-    }
-};
-
 // JSON parsing using nlohmann/json
 using json = nlohmann::json;
 
-// Face Recognizer class
-class FaceRecognizer {
-private:
-    std::unique_ptr<MTCNNDetector> detector_;
-    std::unique_ptr<SubNet> inception_net_;
-    std::unique_ptr<Postgres> db_;
-    std::unique_ptr<FaceQuality> quality_checker_;
-    Ort::Env env_;
-    Ort::SessionOptions session_options_;
-    Ort::MemoryInfo memory_info_;
-    std::vector<int64_t> input_shape_;
-    Config config_;
-    std::mutex mutex_;
-    
-public:
-    FaceRecognizer(const Config& config) 
-        : env_(ORT_LOGGING_LEVEL_ERROR, "face_embedding"),
-          memory_info_(Ort::MemoryInfo::CreateCpu(OrtAllocatorType::OrtArenaAllocator, OrtMemType::OrtMemTypeDefault)),
-          config_(config) {
-        
-        // Initialize MTCNN
-        ProposalNetwork::Config pConfig;
-        pConfig.caffeModel = config_.models_path + "/det1.caffemodel";
-        pConfig.protoText = config_.models_path + "/det1.prototxt";
-        pConfig.threshold = 0.6f;
-        
-        RefineNetwork::Config rConfig;
-        rConfig.caffeModel = config_.models_path + "/det2.caffemodel";
-        rConfig.protoText = config_.models_path + "/det2.prototxt";
-        rConfig.threshold = 0.7f;
-        
-        OutputNetwork::Config oConfig;
-        oConfig.caffeModel = config_.models_path + "/det3.caffemodel";
-        oConfig.protoText = config_.models_path + "/det3.prototxt";
-        oConfig.threshold = 0.7f;
-        
-        detector_ = std::make_unique<MTCNNDetector>(pConfig, rConfig, oConfig);
-        
-        // Initialize ONNX Runtime
-        inception_net_ = std::make_unique<SubNet>(env_, session_options_, config_.inception_model_path);
-        input_shape_ = {1, 3, 160, 160};
-        
-        // Initialize database
-        db_ = std::make_unique<Postgres>(
-            config_.db_host,
-            config_.db_port,
-            config_.db_name,
-            config_.db_user,
-            config_.db_password
-        );
-        
-        // Initialize quality checker
-        quality_checker_ = std::make_unique<FaceQuality>(
-            config_.blur_threshold,
-            config_.min_face_size,
-            config_.dark_ratio_threshold,
-            config_.bright_ratio_threshold,
-            config_.pose_threshold,
-            config_.quality_threshold
-        );
-        
-        std::cout << "Face recognizer initialized successfully" << std::endl;
-    }
-    
-    std::vector<RecognitionResult> processFrame(const cv::Mat& frame, ServerStats& stats, int tracker_id = 0) {
-        std::lock_guard<std::mutex> lock(mutex_);
-        std::vector<RecognitionResult> results;
-        
-        if (frame.empty()) {
-            std::cerr << "Empty frame received" << std::endl;
-            return results;
-        }
-        
-        // Detect faces
-        std::vector<Face> faces;
-        try {
-            faces = detector_->detect(frame, 20.f, 0.709f);
-        } catch (const std::exception& e) {
-            std::cerr << "Face detection error: " << e.what() << std::endl;
-            return results;
-        }
-        
-        stats.total_frames_processed++;
-        
-        // Process each detected face
-        for (size_t i = 0; i < faces.size(); ++i) {
-            RecognitionResult result;
-            cv::Rect face_bbox = faces[i].bbox.getRect();
-            result.tracker_id = tracker_id;
-            
-            // Clamp bounding box to image bounds
-            int x = std::max(0, std::min(face_bbox.x, frame.cols - 1));
-            int y = std::max(0, std::min(face_bbox.y, frame.rows - 1));
-            int w = std::max(1, std::min(face_bbox.width, frame.cols - x));
-            int h = std::max(1, std::min(face_bbox.height, frame.rows - y));
-            
-            // Set bbox coordinates as floats
-            result.xmin = static_cast<float>(x);
-            result.ymin = static_cast<float>(y);
-            result.xmax = static_cast<float>(x + w);
-            result.ymax = static_cast<float>(y + h);
-            
-            
-            try {
-                // Extract face ROI using clamped coordinates
-                cv::Rect roi_rect(x, y, w, h);
-                cv::Mat faceRoi = frame(roi_rect);
-                
-                // Validate quality
-                QualityResult quality = quality_checker_->validate(faceRoi);
-                
-                if (!quality.is_good_quality) {
-                    result.name = "Poor Quality";
-                    result.confidence = quality.quality_score * 100.0f;
-                    result.status = "poor_quality";
-                    stats.quality_rejections++;
-                    results.push_back(result);
-                    continue;
-                }
-                
-                // Preprocess face
-                std::vector<float> faceVector = detector_->forward(faceRoi);
-                
-                if (faceVector.size() != (160 * 160 * 3)) {
-                    result.name = "Invalid";
-                    result.confidence = 0.0f;
-                    result.status = "poor_quality";
-                    stats.quality_rejections++;
-                    results.push_back(result);
-                    continue;
-                }
-                
-                // Create ONNX tensor
-                Ort::Value face_tensor = Ort::Value::CreateTensor<float>(
-                    memory_info_,
-                    const_cast<float*>(faceVector.data()),
-                    faceVector.size(),
-                    input_shape_.data(),
-                    input_shape_.size()
-                );
-                
-                // Run inference
-                std::vector<Ort::Value> outputs = inception_net_->forward(face_tensor);
-                std::vector<int64_t> output_shape = outputs[0].GetTensorTypeAndShapeInfo().GetShape();
-                float* embedding = outputs[0].GetTensorMutableData<float>();
-                
-                
-                stats.total_inferences_run++;
-                
-                // Query database for recognition
-                PostgresPerson person = db_->get_recognition(
-                    std::vector<float>(embedding, embedding + output_shape[1]),
-                    config_.recognition_threshold
-                );
-                
-                if (person.confidence != 0.0) {
-                    result.name = person.name;
-                    result.confidence = person.confidence;
-                    result.status = "recognized";
-                    stats.successful_recognitions++;
-                } else {
-                    result.name = "Unknown";
-                    result.confidence = 0.0f;
-                    result.status = "unknown";
-                    stats.similarity_rejections++;
-                }
-                
-                results.push_back(result);
-                
-            } catch (const std::exception& e) {
-                std::cerr << "Face processing error: " << e.what() << std::endl;
-                result.name = "Error";
-                result.confidence = 0.0f;
-                result.status = "error";
-                results.push_back(result);
-            }
-        }
-        
-        return results;
-    }
-};
 
 // WebSocket session class
 class Session : public std::enable_shared_from_this<Session> {
@@ -407,7 +196,18 @@ public:
                 // Debug: Print image shape
                 
                 // Process frame
-                std::vector<RecognitionResult> results = recognizer_->processFrame(frame, stats_, tracker_id);
+                std::vector<RecognitionResult> results = recognizer_->processFrame(frame, tracker_id);
+                stats_.total_frames_processed++;
+                for (auto& result : results) {
+                    if (result.status == "recognized") {
+                        stats_.successful_recognitions++;
+                    } else if (result.status == "poor_quality") {
+                        stats_.quality_rejections++;
+                    }
+                    if (result.status == "unknown") {
+                        stats_.similarity_rejections++;
+                    }
+                }
                 
                 // Adjust bbox coordinates if bbox was provided (like Python identify_bbox function)
                 if (bbox_xmin != 0.0f || bbox_ymin != 0.0f) {

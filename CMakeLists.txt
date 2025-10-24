@@ -18,6 +18,7 @@ include_directories(${CMAKE_CURRENT_SOURCE_DIR}/src/dnn)
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/src/dnn/mtcnn)
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/src/postgres)
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/src/websocket)
+include_directories(${CMAKE_CURRENT_SOURCE_DIR}/src/recognizer)
 include_directories(/usr/include/nlohmann)
 
 # Find packages
@@ -67,17 +68,18 @@ set(DNN_SOURCES
     src/dnn/mtcnn/pnet.cpp
     src/dnn/mtcnn/rnet.cpp
     src/dnn/mtcnn/onnx_module.cpp
+    src/dnn/draw.hpp
 )
 
-# WebSocket module sources
-set(WEBSOCKET_SOURCES
+set(RECOGNIZER_SOURCES
     src/websocket/config.cpp
     src/websocket/face_quality.cpp
-    websocket_server.cpp
+    src/recognizer/face_recognizer.cpp
+    src/postgres/postgres.cpp
 )
 
 # Build executable
-add_executable(websocket_server ${WEBSOCKET_SOURCES} ${DNN_SOURCES})
+add_executable(websocket_server ${DNN_SOURCES} ${RECOGNIZER_SOURCES} websocket_server.cpp)
 
 # Link libraries
 target_link_libraries(websocket_server 
@@ -96,3 +98,31 @@ set_target_properties(websocket_server PROPERTIES
     BUILD_WITH_INSTALL_RPATH TRUE
 )
 
+add_executable(register ${RECOGNIZER_SOURCES} ${DNN_SOURCES} register.cpp)
+
+target_link_libraries(register
+    ${OpenCV_LIBS}
+    onnxruntime
+    pqxx
+    pq
+)
+
+set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,--as-needed -Wl,-rpath,${ONNXRUNTIME_LIB_DIR}")
+set_target_properties(register PROPERTIES
+    INSTALL_RPATH "${ONNXRUNTIME_LIB_DIR}"
+    BUILD_WITH_INSTALL_RPATH TRUE
+)
+
+add_executable(recognize ${RECOGNIZER_SOURCES} ${DNN_SOURCES} recognize.cpp)
+
+target_link_libraries(recognize
+    ${OpenCV_LIBS}
+    onnxruntime
+    pqxx
+    pq
+)
+
+set_target_properties(recognize PROPERTIES
+    INSTALL_RPATH "${ONNXRUNTIME_LIB_DIR}"
+    BUILD_WITH_INSTALL_RPATH TRUE
+)

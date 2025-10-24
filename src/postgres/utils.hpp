@@ -1,8 +1,10 @@
+#pragma once
+
 #include <string>
 #include <vector>
 #include <sstream>
 
-std::string vec2pgvector(const std::vector<float>& vec) {
+inline std::string vec2pgvector(const std::vector<float>& vec) {
     std::ostringstream oss;
     oss << "[";
     for (size_t i = 0; i < vec.size(); ++i) {
@@ -13,7 +15,7 @@ std::string vec2pgvector(const std::vector<float>& vec) {
     return oss.str();
 }
 
-std::vector<float> pgvector2vec(const std::string& vec) {
+inline std::vector<float> pgvector2vec(const std::string& vec) {
     std::string clean_vec = vec.substr(1, vec.size() - 2);
     std::istringstream iss(clean_vec);
     std::vector<float> result;
