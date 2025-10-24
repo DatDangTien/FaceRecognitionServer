@@ -163,9 +163,15 @@ sudo -u postgres psql
 ```
 
 ## Usage
+### 1. Register a person
 
-### 1. Start the Server
-
+```bash
+# From the project root directory
+./build/register "John Doe" /path/to/image.jpg
+# Test the recognition
+./build/recognize /path/to/image1.jpg
+```
+### 2. Start the Server
 ```bash
 # From the project root directory
 ./build/websocket_server
@@ -174,7 +180,7 @@ sudo -u postgres psql
 ./build/websocket_server /path/to/config.ini
 ```
 
-### 2. WebSocket API
+### 3. WebSocket API
 
 Connect to `ws://localhost:8764` and send JSON messages:
 
