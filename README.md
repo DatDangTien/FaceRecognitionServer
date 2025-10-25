@@ -297,22 +297,3 @@ src/
 ├── websocket/     # WebSocket server components
 └── test/          # Unit tests
 ```
-
-## License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests if applicable
-5. Submit a pull request
-
-## Support
-
-For issues and questions:
-- Create an issue on GitHub
-- Check the troubleshooting section
-- Review the configuration options
