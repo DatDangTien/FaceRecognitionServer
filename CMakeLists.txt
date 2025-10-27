@@ -126,3 +126,17 @@ set_target_properties(recognize PROPERTIES
     INSTALL_RPATH "${ONNXRUNTIME_LIB_DIR}"
     BUILD_WITH_INSTALL_RPATH TRUE
 )
+
+add_executable(live_recognize ${RECOGNIZER_SOURCES} ${DNN_SOURCES} live_recognize.cpp)
+
+target_link_libraries(live_recognize
+    ${OpenCV_LIBS}
+    onnxruntime
+    pqxx
+    pq
+)
+
+set_target_properties(live_recognize PROPERTIES
+    INSTALL_RPATH "${ONNXRUNTIME_LIB_DIR}"
+    BUILD_WITH_INSTALL_RPATH TRUE
+)
