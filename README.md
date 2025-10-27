@@ -254,8 +254,8 @@ Performance benchmarks comparing C++ DNN and Python PyTorch implementations on C
 
 | Metric | CPU - C++ DNN | CPU - Python PyTorch | GPU - C++ DNN | GPU - Python PyTorch |
 |--------|---------------|----------------------|---------------|---------------------|
-| **Latency** | 80ms | 120 ms |  |  |
-| **FPS** | 12-13 fps | 8-9 fps |  |  |
+| **Latency ms** | 80 | 120 |  |  |
+| **FPS** | 12-13 | 8-9 |  |  |
 
 ### Notes:
 - **Latency**: Time to process a single frame (detection + recognition)
