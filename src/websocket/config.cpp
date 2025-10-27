@@ -19,6 +19,7 @@ void Config::setDefaults() {
     detection_interval = 5;
     
     // Quality thresholds (from Python config)
+    quality_check = true;
     blur_threshold = 100.0f;
     min_face_size = 60.0f;
     dark_ratio_threshold = 0.4f;
@@ -33,6 +34,9 @@ void Config::setDefaults() {
     // Model paths
     models_path = "./models";
     inception_model_path = "./models/inception.onnx";
+
+    visualize = false;
+    benchmark = false;
 }
 
 std::string Config::trim(const std::string& str) {
@@ -103,6 +107,14 @@ float Config::getValueFloat(const std::string& key, float defaultValue) {
     return defaultValue;
 }
 
+bool Config::getValueBool(const std::string& key, bool defaultValue) {
+    auto it = configMap.find(key);
+    if (it != configMap.end()) {
+        return it->second == "true";
+    }
+    return defaultValue;
+}
+
 bool Config::load(const std::string& filename) {
     parseFile(filename);
     
@@ -118,6 +130,7 @@ bool Config::load(const std::string& filename) {
     detection_interval = getValueInt("detection_interval", detection_interval);
     
     // Load quality thresholds
+    quality_check = getValueBool("quality_check", quality_check);
     blur_threshold = getValueFloat("blur_threshold", blur_threshold);
     min_face_size = getValueFloat("min_face_size", min_face_size);
     dark_ratio_threshold = getValueFloat("dark_ratio_threshold", dark_ratio_threshold);
@@ -132,6 +145,11 @@ bool Config::load(const std::string& filename) {
     // Load model paths
     models_path = getValue("models_path", models_path);
     inception_model_path = getValue("inception_model_path", inception_model_path);
+
+    // Load debug settings
+    visualize = getValueBool("visualize", visualize);
+    benchmark = getValueBool("benchmark", benchmark);
+
     
     std::cout << "Configuration loaded successfully" << std::endl;
     std::cout << "Database: " << db_host << ":" << db_port << "/" << db_name << std::endl;

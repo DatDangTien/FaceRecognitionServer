@@ -37,17 +37,23 @@ FaceRecognizer::FaceRecognizer(const Config& config)
         config_.db_password
     );
     
+    quality_check_ = config_.quality_check;
     // Initialize quality checker
-    quality_checker_ = std::make_unique<FaceQuality>(
-        config_.blur_threshold,
-        config_.min_face_size,
-        config_.dark_ratio_threshold,
-        config_.bright_ratio_threshold,
-        config_.pose_threshold,
-        config_.quality_threshold
-    );
-    
-    std::cout << "Face recognizer initialized successfully" << std::endl;
+    if (quality_check_) {
+        quality_checker_ = std::make_unique<FaceQuality>(
+            config_.blur_threshold,
+            config_.min_face_size,
+            config_.dark_ratio_threshold,
+            config_.bright_ratio_threshold,
+            config_.pose_threshold,
+            config_.quality_threshold
+        );
+        
+        std::cout << "Face recognizer initialized successfully" << std::endl;
+    }
+    else {
+        std::cout << "Quality check disabled" << std::endl;
+    }
 }
 
 FaceRecognizer::~FaceRecognizer() {
@@ -55,9 +61,11 @@ FaceRecognizer::~FaceRecognizer() {
 }
         
 DBPerson FaceRecognizer::processFace(const cv::Mat& faceRoi) {
+    if (quality_check_) {
     QualityResult quality = quality_checker_->validate(faceRoi);
-    if (!quality.is_good_quality) {
-        return DBPerson(0, "Poor Quality", quality.quality_score, 0.0);
+        if (!quality.is_good_quality) {
+            return DBPerson(0, "Poor Quality", quality.quality_score, 0.0);
+        }
     }
     std::vector<float> faceVector = detector_->forward(faceRoi);
     if (faceVector.size() != (160 * 160 * 3)) {
@@ -81,7 +89,6 @@ DBPerson FaceRecognizer::processFace(const cv::Mat& faceRoi) {
 }
 
 std::vector<RecognitionResult> FaceRecognizer::processFrame(const cv::Mat& frame, int tracker_id) {
-    std::lock_guard<std::mutex> lock(mutex_);
     std::vector<RecognitionResult> results;
     
     if (frame.empty()) {
@@ -132,8 +139,9 @@ std::vector<RecognitionResult> FaceRecognizer::processFrame(const cv::Mat& frame
             // Extract face ROI using clamped coordinates
             cv::Rect roi_rect(x, y, w, h);
             cv::Mat faceRoi = frame(roi_rect);
-            
-            DBPerson person = processFace(faceRoi);
+            cv::Mat faceRoiRGB;
+            cv::cvtColor(faceRoi, faceRoiRGB, cv::COLOR_BGR2RGB);
+            DBPerson person = processFace(faceRoiRGB);
             if (person.name == "Poor Quality") {
                 result.name = "Poor Quality";
                 result.confidence = person.confidence;
@@ -184,10 +192,12 @@ bool FaceRecognizer::registerFace(const cv::Mat& frame, const std::string& name)
         }
         cv::Rect face_bbox = faces[0].bbox.getRect();
         cv::Mat faceRoi = frame(face_bbox);
-        QualityResult quality = quality_checker_->validate(faceRoi);
-        if (!quality.is_good_quality) {
-            std::cerr << "Poor quality face detected" << std::endl;
-            return false;
+        if (quality_check_) {
+            QualityResult quality = quality_checker_->validate(faceRoi);
+            if (!quality.is_good_quality) {
+                std::cerr << "Poor quality face detected" << std::endl;
+                return false;
+            }
         }
         std::vector<float> faceVector = detector_->forward(faceRoi);
         if (faceVector.size() != (160 * 160 * 3)) {

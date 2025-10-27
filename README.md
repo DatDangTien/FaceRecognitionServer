@@ -250,10 +250,16 @@ The server requires the following model files:
 
 ## Performance
 
-- **Processing Speed**: ~20-30 FPS on modern hardware
-- **Memory Usage**: ~2-4GB RAM (depending on batch size)
-- **GPU Acceleration**: Supported via CUDA (2-3x speedup)
-- **Concurrent Connections**: Supports multiple WebSocket clients
+Performance benchmarks comparing C++ DNN and Python PyTorch implementations on CPU and GPU:
+
+| Metric | CPU - C++ DNN | CPU - Python PyTorch | GPU - C++ DNN | GPU - Python PyTorch |
+|--------|---------------|----------------------|---------------|---------------------|
+| **Latency** | 80ms | 120 ms |  |  |
+| **FPS** | 12-13 fps | 8-9 fps |  |  |
+
+### Notes:
+- **Latency**: Time to process a single frame (detection + recognition)
+- **FPS**: Frames per second (throughput)
 
 ## Troubleshooting
 

@@ -41,13 +41,13 @@ class FaceRecognizer {
         std::unique_ptr<MTCNNDetector> detector_;
         std::unique_ptr<SubNet> inception_net_;
         std::unique_ptr<Postgres> db_;
+        bool quality_check_;
         std::unique_ptr<FaceQuality> quality_checker_;
         Ort::Env env_;
         Ort::SessionOptions session_options_;
         Ort::MemoryInfo memory_info_;
         std::vector<int64_t> input_shape_;
         Config config_;
-        std::mutex mutex_;
     
     public:
         FaceRecognizer(const Config& config);

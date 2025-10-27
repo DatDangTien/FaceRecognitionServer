@@ -21,6 +21,7 @@ public:
     int detection_interval;
     
     // Quality thresholds
+    bool quality_check;
     float blur_threshold;
     float min_face_size;
     float dark_ratio_threshold;
@@ -35,6 +36,9 @@ public:
     // Model paths
     std::string models_path;
     std::string inception_model_path;
+
+    bool visualize;
+    bool benchmark;
     
     Config();
     bool load(const std::string& filename);
@@ -47,6 +51,7 @@ private:
     std::string getValue(const std::string& key, const std::string& defaultValue);
     int getValueInt(const std::string& key, int defaultValue);
     float getValueFloat(const std::string& key, float defaultValue);
+    bool getValueBool(const std::string& key, bool defaultValue);
 };
 
 #endif // CONFIG_HPP
