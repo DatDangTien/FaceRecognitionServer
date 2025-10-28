@@ -17,7 +17,7 @@ set(CMAKE_IGNORE_PATH "/home/naiscorp/miniconda3;/home/naiscorp/miniconda3/lib;/
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/src/dnn)
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/src/dnn/mtcnn)
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/src/postgres)
-include_directories(${CMAKE_CURRENT_SOURCE_DIR}/src/websocket)
+include_directories(${CMAKE_CURRENT_SOURCE_DIR}/src/utils)
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/src/recognizer)
 include_directories(/usr/include/nlohmann)
 
@@ -72,8 +72,8 @@ set(DNN_SOURCES
 )
 
 set(RECOGNIZER_SOURCES
-    src/websocket/config.cpp
-    src/websocket/face_quality.cpp
+    src/utils/config.cpp
+    src/utils/face_quality.cpp
     src/recognizer/face_recognizer.cpp
     src/postgres/postgres.cpp
 )

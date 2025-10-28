@@ -13,8 +13,8 @@
 #include <atomic>
 #include <nlohmann/json.hpp>
 
-#include "src/websocket/config.hpp"
-#include "src/websocket/base64.hpp"
+#include "src/utils/config.hpp"
+#include "src/utils/base64.hpp"
 #include "src/recognizer/face_recognizer.hpp"
 
 namespace beast = boost::beast;

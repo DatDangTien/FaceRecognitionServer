@@ -2,7 +2,7 @@
 #include <chrono>
 #include <opencv2/opencv.hpp>
 #include "src/recognizer/face_recognizer.hpp"
-#include "src/websocket/config.hpp"
+#include "src/utils/config.hpp"
 
 int main(int argc, char** argv) {
     // Open video capture (default to webcam 0, or use video file if provided)

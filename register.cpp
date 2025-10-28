@@ -1,5 +1,5 @@
 #include "src/recognizer/face_recognizer.hpp"
-#include "src/websocket/config.hpp"
+#include "src/utils/config.hpp"
 
 //// rm -rf build; mkdir build;cd build;cmake ..;make;cd ..
 //// ./build/register "John Doe" ./data/got.jpg

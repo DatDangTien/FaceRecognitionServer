@@ -4,8 +4,8 @@
 #include <../dnn/mtcnn/detector.h>
 #include <../dnn/mtcnn/onnx_module.h>
 #include <../postgres/postgres.hpp>
-#include <../websocket/face_quality.hpp>
-#include <../websocket/config.hpp>
+#include <../utils/face_quality.hpp>
+#include <../utils/config.hpp>
 #include <../dnn/draw.hpp>
 
 struct RecognitionResult {
