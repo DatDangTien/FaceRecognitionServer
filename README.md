@@ -49,16 +49,27 @@ A high-performance C++ WebSocket server for real-time face recognition using MTC
 ### System Requirements
 - **Ubuntu 20.04+** (tested on Ubuntu 20.04/22.04)
 - **CMake 3.10+**
-- **C++14 compatible compiler** (GCC 7+ or Clang 5+)
-- **CUDA 11.0+** (for GPU acceleration)
+- **C++17 compatible compiler** (GCC 7+ or Clang 5+)
+- **Python 3.10+** (Python 3.12+ supported)
+- **CUDA 11.0+** (optional, for GPU acceleration)
 
-### Required Libraries
+### Required C++ Libraries
 - **OpenCV 4.x** - Computer vision operations
 - **Boost 1.65+** - WebSocket and networking (system, thread)
 - **PostgreSQL 12+** - Database backend
 - **libpqxx** - PostgreSQL C++ client library
 - **ONNX Runtime 1.12+** - Neural network inference
 - **nlohmann/json** - JSON parsing and generation
+- **pybind11 2.11+** - Python bindings for C++ (required for Python API)
+
+### Required Python Libraries (for FastAPI)
+- **Python 3.10+** (3.12+ supported)
+- **pybind11** - Python bindings (`pip install pybind11`)
+- **FastAPI** - Web framework (`pip install fastapi`)
+- **uvicorn** - ASGI server (`pip install uvicorn[standard]`)
+- **python-multipart** - File upload support (`pip install python-multipart`)
+- **numpy** - Array operations (`pip install numpy`)
+- **opencv-python** - OpenCV Python bindings (`pip install opencv-python`)
 
 ## Installation
 
@@ -99,7 +110,24 @@ echo "/usr/local/onnxruntime/lib" | sudo tee /etc/ld.so.conf.d/onnxruntime.conf
 sudo ldconfig
 ```
 
-### 3. Clone and Build
+### 3. Install Python Dependencies (for FastAPI)
+
+```bash
+# Install Python dependencies
+pip install pybind11 fastapi uvicorn[standard] python-multipart numpy opencv-python
+
+# Or install from requirements.txt
+pip install -r requirements.txt
+```
+
+**Note for Python 3.12+**: For best compatibility with Python 3.12+, ensure pybind11 is installed via pip in your Python environment:
+```bash
+pip install pybind11
+```
+
+The CMake build system will automatically detect and use pybind11 from your Python installation.
+
+### 4. Clone and Build
 
 ```bash
 # Clone the repository
@@ -115,7 +143,12 @@ cmake ..
 # Build the project
 make -j$(nproc)
 
-# The executable will be created as 'websocket_server'
+# The executables will be created:
+# - websocket_server: WebSocket server
+# - register: Face registration tool
+# - recognize: Face recognition tool
+# - live_recognize: Live camera recognition
+# - face_recognition_cpp*.so: Python module (for FastAPI)
 ```
 
 ## Configuration
@@ -163,15 +196,26 @@ sudo -u postgres psql
 ```
 
 ## Usage
-### 1. Register a person
+
+### 1. Register a Person
 
 ```bash
 # From the project root directory
 ./build/register "John Doe" /path/to/image.jpg
-# Test the recognition
-./build/recognize /path/to/image1.jpg
+
+# Or register from a directory of images (format: Name.jpg)
+./build/register /path/to/image/directory
 ```
-### 2. Start the Server
+
+### 2. Test Recognition
+
+```bash
+# Test face recognition on an image
+./build/recognize /path/to/image.jpg
+```
+
+### 3. Start WebSocket Server
+
 ```bash
 # From the project root directory
 ./build/websocket_server
@@ -179,6 +223,23 @@ sudo -u postgres psql
 # Or with custom config file
 ./build/websocket_server /path/to/config.ini
 ```
+
+### 4. Start FastAPI Server
+
+```bash
+# Ensure the Python module is built (should be in project root)
+# Start the FastAPI server
+python api_server.py
+
+# Or with custom host/port
+CONFIG_PATH=config.ini API_HOST=0.0.0.0 API_PORT=8000 python api_server.py
+```
+
+The FastAPI server provides REST endpoints:
+- `POST /recognize` - Recognize faces in an image
+- `POST /register` - Register a new face
+- `GET /health` - Health check endpoint
+- Interactive API docs at `http://localhost:8000/docs`
 
 ### 3. WebSocket API
 
@@ -274,13 +335,23 @@ Performance benchmarks comparing C++ DNN and Python PyTorch implementations on C
    - Check database credentials in `config.ini`
    - Ensure PostgreSQL is running: `sudo systemctl status postgresql`
 
-3. **OpenCV conflicts with conda**:
-   - The CMakeLists.txt automatically excludes conda paths
+3. **OpenCV conflicts with Python environments**:
+   - The CMakeLists.txt automatically excludes certain paths to avoid ABI conflicts
    - Use system OpenCV: `sudo apt install libopencv-dev`
 
-4. **CUDA not detected**:
+4. **Python 3.12+ compatibility issues**:
+   - Ensure pybind11 is installed via pip: `pip install pybind11`
+   - The build system will automatically use pybind11 from your Python installation
+   - If you see version mismatch errors, rebuild with: `rm -rf build && mkdir build && cd build && cmake .. && make`
+
+5. **CUDA not detected**:
    - Install CUDA toolkit and drivers
    - Verify with: `nvidia-smi`
+
+6. **Python module import error**:
+   - Ensure the module was built: `ls -la face_recognition_cpp*.so`
+   - Make sure you're in the project root directory when running the API server
+   - Check Python path: `python -c "import sys; print(sys.path)"`
 
 ## Development
 

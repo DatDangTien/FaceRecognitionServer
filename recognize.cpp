@@ -56,7 +56,7 @@ int main(int argc, char** argv) {
         // Create annotation text
         std::string annotation;
         if (result.status == "recognized") {
-            annotation = "ID:" + std::to_string(result.person_id) + 
+            annotation = "ID:" + result.person_id + 
                         " " + result.name + 
                         " (" + std::to_string(static_cast<int>(result.confidence * 100)) + "%)";
         } else if (result.status == "poor_quality") {

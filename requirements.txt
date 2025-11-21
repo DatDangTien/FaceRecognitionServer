@@ -10,3 +10,8 @@ tqdm
 onnxruntime-gpu==1.20.0; platform_system == "Linux" and platform_machine == "x86_64"
 onnxruntime==1.20.0; platform_system != "Linux" or platform_machine != "x86_64"
 psycopg2-binary==2.9.10
+# FastAPI and API dependencies
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+python-multipart>=0.0.6
+pybind11>=2.11.0

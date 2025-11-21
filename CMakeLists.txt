@@ -39,25 +39,6 @@ set(ONNXRUNTIME_LIB_DIR "${ONNXRUNTIME_ROOT}/lib")
 
 include_directories(${ONNXRUNTIME_INCLUDE_DIR})
 
-# QNN SDK paths (optional, for NPU acceleration)
-set(QNN_SDK_ROOT "/opt/qcom/qirp-sdk")
-set(QNN_INCLUDE_DIR "${QNN_SDK_ROOT}/include")
-set(QNN_LIB_DIR "${QNN_SDK_ROOT}/lib/aarch64-oe-linux-gcc11.2")
-
-# Check if QNN SDK exists and add if available
-if(EXISTS ${QNN_SDK_ROOT} AND EXISTS ${QNN_INCLUDE_DIR})
-    message(STATUS "Found QNN SDK at ${QNN_SDK_ROOT}")
-    include_directories(${QNN_INCLUDE_DIR})
-    link_directories(${QNN_LIB_DIR})
-    add_definitions(-DENABLE_QNN)
-else()
-    message(STATUS "QNN SDK not found, skipping NPU acceleration")
-endif()
-
-# # Find CUDA
-# find_package(CUDA REQUIRED)
-# include_directories(${CUDA_INCLUDE_DIRS})
-
 # Filter out conda libraries from OpenCV
 if(OpenCV_LIBS)
     set(FILTERED_OpenCV_LIBS "")
@@ -75,6 +56,23 @@ link_directories(BEFORE ${ONNXRUNTIME_LIB_DIR})
 
 # Explicitly exclude conda library paths from linker search
 link_directories(BEFORE /usr/lib /usr/lib/x86_64-linux-gnu)
+
+# Create an INTERFACE library to group all common include directories
+# This makes it cleaner to link to multiple targets
+add_library(face_recognition_includes INTERFACE)
+target_include_directories(face_recognition_includes INTERFACE
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/dnn
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/dnn/mtcnn
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/postgres
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/utils
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/recognizer
+    /usr/include/nlohmann
+    ${OpenCV_INCLUDE_DIRS}
+    ${Boost_INCLUDE_DIRS}
+    ${PostgreSQL_INCLUDE_DIRS}
+    ${ONNXRUNTIME_INCLUDE_DIR}
+)
 
 # DNN module sources (reuse from parent)
 set(DNN_SOURCES
@@ -153,6 +151,49 @@ target_link_libraries(live_recognize
 )
 
 set_target_properties(live_recognize PROPERTIES
+    INSTALL_RPATH "${ONNXRUNTIME_LIB_DIR}"
+    BUILD_WITH_INSTALL_RPATH TRUE
+)
+
+# Oat++ library paths (built locally)
+set(OATPP_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/third_party/oatpp")
+set(OATPP_INCLUDE_DIR "${OATPP_ROOT}/src")
+set(OATPP_LIB_DIR "${OATPP_ROOT}/build/src")
+set(OATPP_LIB "${OATPP_LIB_DIR}/liboatpp.a")
+
+# Add oatpp include directory
+include_directories(${OATPP_INCLUDE_DIR})
+
+# Create imported target for oatpp
+add_library(oatpp STATIC IMPORTED)
+set_target_properties(oatpp PROPERTIES
+    IMPORTED_LOCATION "${OATPP_LIB}"
+    INTERFACE_INCLUDE_DIRECTORIES "${OATPP_INCLUDE_DIR}"
+)
+
+set(OATPP_TARGET oatpp)
+message(STATUS "Using locally built Oat++ from: ${OATPP_ROOT}")
+
+include_directories(${CMAKE_CURRENT_SOURCE_DIR}/api)
+add_executable(api_server
+    api/main.cpp
+    api/controller/FaceRecognitionController.cpp
+    api/utils/ImageUtils.cpp
+    ${DNN_SOURCES}
+    ${RECOGNIZER_SOURCES}
+)
+
+target_link_libraries(api_server PRIVATE face_recognition_includes)
+target_link_libraries(api_server PRIVATE
+    ${OATPP_TARGET}
+    ${OpenCV_LIBS}
+    onnxruntime
+    pqxx
+    pq
+    pthread
+)
+
+set_target_properties(api_server PROPERTIES
     INSTALL_RPATH "${ONNXRUNTIME_LIB_DIR}"
     BUILD_WITH_INSTALL_RPATH TRUE
 )

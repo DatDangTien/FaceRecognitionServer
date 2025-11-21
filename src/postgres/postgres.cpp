@@ -2,7 +2,7 @@
 
 // DBPerson implementation
 DBPerson::DBPerson(
-    const uint64_t& id,
+    const std::string& id,
     const std::string& name,
     const float& confidence,
     const float& distance
@@ -10,7 +10,7 @@ DBPerson::DBPerson(
 }
 
 std::string DBPerson::to_string() const {
-    return "ID: " + std::to_string(id) + 
+    return "ID: " + id + 
            ", Name: " + name + 
            ", Confidence: " + std::to_string(confidence) + 
            ", Distance: " + std::to_string(distance);
@@ -44,11 +44,10 @@ void Postgres::insert_embedding(const std::string& name, const std::vector<float
     txn.commit();
 }
 
-void Postgres::update_embedding(const uint64_t& id, const std::string& name, const std::vector<float>& embedding) {
+void Postgres::update_embedding(const std::string& id, const std::vector<float>& embedding) {
     pqxx::work txn(conn);
     txn.exec_params(
-        "UPDATE Person SET name = $1, embedding = $2 WHERE id = $3",
-        name,
+        "UPDATE Person SET embedding = $1 WHERE id = $2::uuid",
         vec2pgvector(embedding),
         id
     );
@@ -75,7 +74,7 @@ std::vector<DBPerson> Postgres::get_persons(std::string name) {
     std::vector<DBPerson> persons;
     for (const auto& row : r) {
         persons.push_back(DBPerson(
-            row["id"].as<uint64_t>(), 
+            row["id"].as<std::string>(), 
             row["name"].as<std::string>(), 
             0.0, 
             0.0
@@ -101,11 +100,11 @@ DBPerson Postgres::get_recognition(const std::vector<float>& embedding, float th
     txn.commit();
     
     if (r.empty()) {
-        return DBPerson(0, "", 0.0, 0.0);
+        return DBPerson("", "", 0.0, 0.0);
     }
     
     return DBPerson(
-        r[0]["id"].as<uint64_t>(),
+        r[0]["id"].as<std::string>(),
         r[0]["name"].as<std::string>(),
         1 - r[0]["distance"].as<float>(),
         r[0]["distance"].as<float>()

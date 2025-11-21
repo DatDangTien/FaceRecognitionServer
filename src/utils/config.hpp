@@ -32,6 +32,10 @@ public:
     // Server settings
     std::string server_host;
     int server_port;
+
+    // API settings
+    std::string api_host;
+    int api_port;
     
     // Model paths
     std::string models_path;

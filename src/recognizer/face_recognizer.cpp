@@ -71,13 +71,13 @@ DBPerson FaceRecognizer::processFace(const cv::Mat& faceRoi) {
     if (quality_check_) {
     QualityResult quality = quality_checker_->validate(faceRoi);
         if (!quality.is_good_quality) {
-            return DBPerson(0, "Poor Quality", quality.quality_score, 0.0);
+            return DBPerson("", "Poor Quality", quality.quality_score, 0.0);
         }
     }
     std::vector<float> faceVector = detector_->preprocessFace(faceRoi);
     if (faceVector.size() != (160 * 160 * 3)) {
         std::cerr << "Invalid face tensor: " << faceVector.size() << std::endl;
-        return DBPerson(0, "Invalid", 0.0, 0.0);
+        return DBPerson("", "Invalid", 0.0, 0.0);
     }
 
     Ort::Value face_tensor = Ort::Value::CreateTensor<float>(
@@ -153,13 +153,13 @@ std::vector<RecognitionResult> FaceRecognizer::processFrame(const cv::Mat& frame
                 result.name = "Poor Quality";
                 result.confidence = person.confidence;
                 result.status = "poor_quality";
-                result.person_id = -1;
+                result.person_id = "";
             }
             else if (person.name == "Invalid") {
                 result.name = "";
                 result.confidence = 0.0f;
                 result.status = "invalid";
-                result.person_id = -1;
+                result.person_id = "";
             }
             else if (person.confidence != 0.0 && person.confidence > config_.recognition_threshold) {
                 result.name = person.name;
@@ -171,7 +171,7 @@ std::vector<RecognitionResult> FaceRecognizer::processFrame(const cv::Mat& frame
                 result.name = "Unknown";
                 result.confidence = person.confidence;
                 result.status = "unknown";
-                result.person_id = -1;
+                result.person_id = "";
             }
             results.push_back(result);
         } catch (const std::exception& e) {
@@ -182,20 +182,20 @@ std::vector<RecognitionResult> FaceRecognizer::processFrame(const cv::Mat& frame
     return results;
 }
 
-bool FaceRecognizer::registerFace(const cv::Mat& frame, const std::string& name) {
+ std::pair<bool, std::string> FaceRecognizer::registerFace(const cv::Mat& frame, const std::string& name, const std::string& id) {
     try {
         if (frame.empty()) {
             std::cerr << "Empty frame received" << std::endl;
-            return false;
+            return {false, "Empty frame received"};
         }
         std::vector<Face> faces = detector_->detect(frame, 20.f, 0.709f);
         if (faces.empty()) {
             std::cerr << "No faces found in the frame" << std::endl;
-            return false;
+            return {false, "No faces found in the frame"};
         }
         if (faces.size() > 1) {
             std::cerr << "Multiple faces found in the frame" << std::endl;
-            return false;
+            return {false, "Multiple faces found in the frame"};
         }
         cv::Rect face_bbox = faces[0].bbox.getRect();
         cv::Mat faceRoi = frame(face_bbox);
@@ -203,7 +203,7 @@ bool FaceRecognizer::registerFace(const cv::Mat& frame, const std::string& name)
             QualityResult quality = quality_checker_->validate(faceRoi);
             if (!quality.is_good_quality) {
                 std::cerr << "Poor quality face detected" << std::endl;
-                return false;
+                return {false, "Poor quality face detected"};
             }
         }
         cv::Mat faceRoiRGB;
@@ -211,7 +211,7 @@ bool FaceRecognizer::registerFace(const cv::Mat& frame, const std::string& name)
         std::vector<float> faceVector = detector_->preprocessFace(faceRoiRGB);
         if (faceVector.size() != (160 * 160 * 3)) {
             std::cerr << "Invalid face tensor" << std::endl;
-            return false;
+            return {false, "Invalid face tensor"};
         }
         Ort::Value face_tensor = Ort::Value::CreateTensor<float>(
             memory_info_,
@@ -223,20 +223,35 @@ bool FaceRecognizer::registerFace(const cv::Mat& frame, const std::string& name)
         std::vector<Ort::Value> outputs = inception_net_->forward(face_tensor);
         std::vector<int64_t> output_shape = outputs[0].GetTensorTypeAndShapeInfo().GetShape();
         float* embedding = outputs[0].GetTensorMutableData<float>();
-        db_->insert_embedding(name, std::vector<float>(embedding, embedding + output_shape[1]));
+        if (name.empty() && !id.empty()) {
+            try {
+                db_->update_embedding(id, std::vector<float>(embedding, embedding + output_shape[1]));
+            } catch (const std::exception& e) {
+                std::cerr << "Update embedding id = " << id << ", error: " << e.what() << std::endl;
+                return {false, "Update error: " + std::string(e.what())};
+            }
+        }
+        else if (!name.empty()) {
+            try {
+                db_->insert_embedding(name, std::vector<float>(embedding, embedding + output_shape[1]));
+            } catch (const std::exception& e) {
+                std::cerr << "Insert embedding name = " << name << ", error: " << e.what() << std::endl;
+                return {false, "Insert error: " + std::string(e.what())};
+            }
+        }
 
         // Validate the insert
         DBPerson person = db_->get_recognition(
             std::vector<float>(embedding, embedding + output_shape[1]),
             config_.recognition_threshold
         );
-        if (person.name == name) {
+        if (person.confidence > 0.95) {
             std::vector<cv::Point> pts;
             for (int p = 0; p < NUM_PTS; ++p) {
                 pts.push_back(cv::Point(faces[0].ptsCoords[2 * p], faces[0].ptsCoords[2 * p + 1]));
             }
             auto rect = faces[0].bbox.getRect();
-            std::string anno =  std::to_string(person.id) + " " + person.name + ": " + std::to_string(person.confidence).substr(0, 4);
+            std::string anno =  person.id + " " + person.name + ": " + std::to_string(person.confidence).substr(0, 4);
             std::vector<std::tuple<cv::Rect, std::vector<cv::Point>, std::string>> data;
             data.push_back(std::make_tuple(rect, pts, anno));
             auto resultImg = drawRectsAndPoints(frame, data);
@@ -245,17 +260,17 @@ bool FaceRecognizer::registerFace(const cv::Mat& frame, const std::string& name)
                 cv::waitKey(0);
             }
             if (config_.save_output) {
-                cv::imwrite(config_.save_dir + "/" + name + ".jpg", resultImg);
+                cv::imwrite(config_.save_dir + "/" + person.name + ".jpg", resultImg);
             }
             std::cout << "Face registered id: " << person.id << " name: " << person.name << " confidence: " << person.confidence << std::endl;
-            return true;
+            return {true, name};
         }
         std::cout << "Face similar to " << person.name << " with confidence " << person.confidence << std::endl;
-        return false;
+        return {false, "Update verification failed"};
 
     }
     catch (const std::exception& e) {
         std::cerr << "Face registration error: " << e.what() << std::endl;
-        return false;
+        return {false, "Registration error: " + std::string(e.what())};
     }
 }

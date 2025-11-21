@@ -30,6 +30,10 @@ void Config::setDefaults() {
     // Server defaults
     server_host = "0.0.0.0";
     server_port = 8764;
+
+    // API defaults
+    api_host = "0.0.0.0";
+    api_port = 7997;
     
     // Model paths
     models_path = "./models";
@@ -143,6 +147,10 @@ bool Config::load(const std::string& filename) {
     // Load server settings
     server_host = getValue("server_host", server_host);
     server_port = getValueInt("server_port", server_port);
+
+    // Load API settings
+    api_host = getValue("api_host", api_host);
+    api_port = getValueInt("api_port", api_port);
     
     // Load model paths
     models_path = getValue("models_path", models_path);

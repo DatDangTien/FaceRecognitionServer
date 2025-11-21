@@ -15,7 +15,7 @@ struct RecognitionResult {
     std::string status;
     float xmin, ymin, xmax, ymax;  // Bbox coordinates as floats
     int tracker_id;
-    int person_id;
+    std::string person_id;  // UUID as string
     std::vector<cv::Point> landmarks;  // Face landmarks for drawing
     
     std::string toJSON() const {
@@ -55,5 +55,5 @@ class FaceRecognizer {
         ~FaceRecognizer();
         DBPerson processFace(const cv::Mat& faceRoi);
         std::vector<RecognitionResult> processFrame(const cv::Mat& frame, int tracker_id = 0);
-        bool registerFace(const cv::Mat& frame, const std::string& name);
+        std::pair<bool, std::string> registerFace(const cv::Mat& frame, const std::string& name, const std::string& id = "");
 };

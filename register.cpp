@@ -25,12 +25,12 @@ int main(int argc, char **argv) {
             Config config;
             config.load("config.ini");
             FaceRecognizer recognizer(config);
-            bool success = recognizer.registerFace(img, name);
-            if (success) {
-                std::cout << "Face registered successfully" << std::endl;
+            std::pair<bool, std::string> success = recognizer.registerFace(img, name);
+            if (success.first) {
+                std::cout << "Face registered successfully: " << success.second << std::endl;
             }
             else {
-                std::cerr << "Failed to register face" << std::endl;
+                std::cerr << "Failed to register face: " << std::endl;
                 continue;
             }
         }
@@ -48,9 +48,9 @@ int main(int argc, char **argv) {
     Config config;
     config.load("config.ini");
     FaceRecognizer recognizer(config);
-    bool success = recognizer.registerFace(img, name);
-    if (success) {
-        std::cout << "Face registered successfully" << std::endl;
+    std::pair<bool, std::string> success = recognizer.registerFace(img, name);
+    if (success.first) {
+        std::cout << "Face registered successfully: " << success.second << std::endl;
         return 0;
     }
     else {
