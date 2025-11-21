@@ -1,0 +1,56 @@
+# Build artifacts
+build/
+third_party/oatpp/build/
+*.o
+*.a
+*.so
+*.dylib
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+server.log
+
+# Python (if any)
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+venv/
+env/
+
+# Test files
+test/
+*.test
+
+# Documentation
+*.md
+!README.md
+
+# Data directories (can be mounted as volumes)
+data/save_output/
+data/*.jpg
+data/*.png
+
+# Temporary files
+*.tmp
+*.bak
+*.cache
+
+# Other executables (not needed for api_server)
+websocket_server
+register
+recognize
+live_recognize
+

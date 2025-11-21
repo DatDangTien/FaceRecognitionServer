@@ -1,0 +1,30 @@
+version: '3.8'
+
+services:
+  api_server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: face-recognition-api:latest
+    container_name: face-recognition-api
+    ports:
+      - "7997:7997"
+    environment:
+      - API_HOST=0.0.0.0
+      - API_PORT=7997
+      - CONFIG_PATH=/app/config.ini
+    volumes:
+      # Mount config file (optional, can override default)
+      - ./config.ini:/app/config.ini:ro
+      # Mount models directory (optional, if you want to update models without rebuilding)
+      - ./models:/app/models:ro
+      # Mount output directory for saved images
+      - ./data/save_output:/app/data/save_output
+    restart: unless-stopped
+    networks:
+      - face-recognition-net
+
+networks:
+  face-recognition-net:
+    driver: bridge
+
